@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ジンジャーエール味診断</title>
+<!-- LIFF SDK -->
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; margin:0; display:flex; flex-direction:column; height:100vh; }
+  #app { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:1.5rem; }
+  button { width:100%; margin:.5rem 0; padding:.8rem; font-size:1.1rem; border:none; border-radius:8px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h2 id="question">Loading...</h2>
+  <div id="choices"></div>
+  <div id="result" class="hidden">
+    <h2 id="resultTitle"></h2>
+    <p id="resultDesc"></p>
+    <button id="closeBtn">LINEに戻る</button>
+  </div>
+</div>
+
+<script>
+/* ====== 設定 ====== */
+const LIFF_ID = 'YOUR_LIFF_ID';
+const GAS_URL = 'YOUR_GAS_DEPLOY_URL';
+
+/* 質問定義：text, choices[{label,value,score}] */
+const QUESTIONS = [
+  {text:'甘味と辛味、どちらが好き？',
+   choices:[{l:'甘味',v:'sweet',s:{sweet:2}},
+            {l:'辛味',v:'spicy',s:{spicy:2}},
+            {l:'どちらも',v:'both',s:{sweet:1,spicy:1}}]},
+  {text:'後味のキレは？',
+   choices:[{l:'スッキリ',v:'refresh',s:{refresh:2}},
+            {l:'じんわり続く',v:'rich',s:{rich:2}}]},
+  {text:'生姜の刺激は？',
+   choices:[{l:'控えめ',v:'mild',s:{sweet:1}},
+            {l:'しっかり',v:'strong',s:{spicy:1}},
+            {l:'刺激MAX',v:'max',s:{spicy:2}}]},
+  {text:'レモン感は？',
+   choices:[{l:'弱め',v:'lemonLow',s:{}},
+            {l:'しっかり',v:'lemonHigh',s:{refresh:1}}]},
+  {text:'飲むシーンは？',
+   choices:[{l:'食事中',v:'meal',s:{refresh:1}},
+            {l:'リフレッシュ',v:'break',s:{refresh:1}},
+            {l:'お酒の代わり',v:'alcoholAlt',s:{rich:1,spicy:1}}]}
+];
+
+/* 診断タイプ判定ロジック */
+function judgeType(score){
+  /* 単純に sweet/spicy/refresh/rich の最大値で決定 */
+  const maxKey = Object.keys(score).reduce((a,b)=>score[a]>=score[b]?a:b,'sweet');
+  switch(maxKey){
+    case 'sweet':  return {type:'甘口',desc:'ほのかな甘さでリラックス！クラシックな甘口タイプがおすすめ。'};
+    case 'spicy':  return {type:'辛口',desc:'ピリッとした生姜の刺激を堪能。スパイシー派に◎'};
+    case 'refresh':return {type:'爽口',desc:'レモンの香りで後味すっきり。リフレッシュしたい時に。'};
+    case 'rich':   return {type:'極辛',desc:'濃厚な香りと深い余韻—エクストラ・スパイシー好き向け！'};
+    default:       return {type:'甘口',desc:''};
+  }
+}
+
+/* ====== アプリ本体 ====== */
+let current = 0;
+let answers = [];
+let score = {sweet:0,spicy:0,refresh:0,rich:0};
+let userId = '';
+
+const qElem = document.getElementById('question');
+const cElem = document.getElementById('choices');
+const resBox = document.getElementById('result');
+const resTitle = document.getElementById('resultTitle');
+const resDesc = document.getElementById('resultDesc');
+const closeBtn = document.getElementById('closeBtn');
+
+function renderQuestion(){
+  const q = QUESTIONS[current];
+  qElem.textContent = q.text;
+  cElem.innerHTML = '';
+  q.choices.forEach(ch=>{
+    const btn=document.createElement('button');
+    btn.textContent=ch.l;
+    btn.onclick=()=>selectChoice(ch);
+    cElem.appendChild(btn);
+  });
+}
+
+function selectChoice(choice){
+  answers.push(choice.v);
+  Object.entries(choice.s).forEach(([k,v])=>{score[k]=(score[k]||0)+v});
+  current++;
+  if(current < QUESTIONS.length){ renderQuestion(); }
+  else{ showResult(); }
+}
+
+function showResult(){
+  const result = judgeType(score);
+  resTitle.textContent = `あなたにおすすめは「${result.type}」！`;
+  resDesc.textContent  = result.desc;
+  qElem.classList.add('hidden');
+  cElem.classList.add('hidden');
+  resBox.classList.remove('hidden');
+
+  /* スプレッドシートへ送信 */
+  const params = new URLSearchParams({
+    uid:userId,
+    q1:answers[0], q2:answers[1], q3:answers[2], q4:answers[3], q5:answers[4],
+    result: result.type
+  }).toString();
+  fetch(`${GAS_URL}?${params}`)
+    .catch(err=>console.error('Send error',err));
+}
+
+closeBtn.onclick=()=> liff.closeWindow();
+
+/* ====== LIFF 初期化 ====== */
+async function init(){
+  await liff.init({ liffId: LIFF_ID });
+  userId = liff.getContext()?.userId || (await liff.getProfile()).userId;
+  renderQuestion();
+}
+init();
+</script>
+</body>
+</html>
